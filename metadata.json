@@ -1,0 +1,11 @@
+{
+  "name": "master absen final",
+  "description": "Sistem Informasi Manajemen Sekolah Terpadu dengan Absensi QR & Kiosk, Leger Presensi Siswa, dan Leger Nilai Rapor Kurikulum Merdeka",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

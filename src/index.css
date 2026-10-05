@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  
+  /* Logika standar: Sembunyikan semuanya kecuali #print-area */
+  body:not(.print-massal-mode) * {
+    visibility: hidden !important;
+  }
+  body:not(.print-massal-mode) #print-area, 
+  body:not(.print-massal-mode) #print-area * {
+    visibility: visible !important;
+  }
+  
+  /* Logika Massal: Sembunyikan semua kecuali elemen cetak massal */
+  body.print-massal-mode * {
+    visibility: hidden !important;
+  }
+  body.print-massal-mode .print-massal-container,
+  body.print-massal-mode .print-massal-container * {
+    visibility: visible !important;
+  }
+  
+  body.print-massal-mode .print-massal-container {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  #print-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 10px !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  
+  @page {
+    size: auto;
+    margin: 8mm;
+  }
+}
+
+/* ==========================================================
+   Liquid Magic Curved Navigation Bar (Clean Minimalist White)
+   ========================================================== */
+:root {
+  --liquid-nav-bg: #ffffff;       /* Bar putih bersih */
+  --liquid-page-bg: #f9fafb;      /* Background kontainer mobile (gray-50) */
+  --liquid-bubble-bg: #2563eb;    /* Lingkaran aktif biru sekolah teduh */
+  --liquid-icon-active: #ffffff;  /* Ikon aktif putih bersih */
+}
+
+/* Lingkaran gelembung aktif yang mengapung */
+.liquid-bubble {
+  position: absolute;
+  top: -35px;
+  width: 68px;
+  height: 68px;
+  background: var(--liquid-bubble-bg);
+  border-radius: 50%;
+  border: 6px solid var(--liquid-page-bg);
+  box-shadow: 0 10px 25px -4px rgba(37, 99, 235, 0.4);
+}
+
+/* Efek lekukan halus (liquid curve) di sebelah kiri */
+.liquid-bubble::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -22px;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border-top-right-radius: 20px;
+  box-shadow: 1px -10px 0 0 var(--liquid-page-bg);
+}
+
+/* Efek lekukan halus (liquid curve) di sebelah kanan */
+.liquid-bubble::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -22px;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border-top-left-radius: 20px;
+  box-shadow: -1px -10px 0 0 var(--liquid-page-bg);
+}
