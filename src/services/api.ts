@@ -148,7 +148,19 @@ export const apiUpdateAdminCredentials = async (
     currentAdmin.user.name = data.name.trim();
   }
 
-  // Persist to localStorage
+  // Persist to PostgreSQL backend & localStorage
+  try {
+    fetch("/api/auth/update-admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: currentAdmin.user.username,
+        name: currentAdmin.user.name,
+        newPassword: data.newPassword || undefined,
+      }),
+    }).catch(() => {});
+  } catch (e) {}
+
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(ADMIN_CREDENTIALS_KEY, JSON.stringify({
@@ -272,27 +284,53 @@ export const apiSubmitLeave = async (
   };
 };
 
-// --- DATA KELAS & SISWA (BERSIH DARI DATA DUMMY) ---
+// --- DATA KELAS & SISWA (TERINTEGRASI DENGAN POSTGRESQL SUMOPOD) ---
 let MOCK_CLASSES: any[] = [];
 const MOCK_SCHEDULES: any[] = [];
-const MOCK_STUDENTS: any[] = [];
+let MOCK_STUDENTS: any[] = [];
 
 export const apiGetClasses = async (token: string): Promise<ApiResponse<typeof MOCK_CLASSES>> => {
-  await new Promise((resolve) => setTimeout(resolve, 500));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+
+  try {
+    const res = await fetch("/api/classes");
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        MOCK_CLASSES = json.data;
+        return { success: true, message: "Success", data: json.data };
+      }
+    }
+  } catch (e) {
+    // fallback to local memory
+  }
+
   return { success: true, message: "Success", data: MOCK_CLASSES };
 };
 
 export const apiGetSchedules = async (token: string, classId: string): Promise<ApiResponse<typeof MOCK_SCHEDULES>> => {
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 300));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
   return { success: true, message: "Success", data: MOCK_SCHEDULES.filter(s => s.classId === classId) };
 };
 
 export const apiGetStudents = async (token: string, classId: string): Promise<ApiResponse<typeof MOCK_STUDENTS>> => {
-  await new Promise((resolve) => setTimeout(resolve, 500));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
-  return { success: true, message: "Success", data: MOCK_STUDENTS.filter(s => s.classId === classId) };
+
+  try {
+    const url = classId && classId !== "all" ? `/api/students?classId=${encodeURIComponent(classId)}` : "/api/students";
+    const res = await fetch(url);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        return { success: true, message: "Success", data: json.data };
+      }
+    }
+  } catch (e) {
+    // fallback
+  }
+
+  return { success: true, message: "Success", data: MOCK_STUDENTS.filter(s => s.classId === classId || s.kelas_id === classId) };
 };
 
 export const apiSubmitStudentLeave = async (
@@ -446,26 +484,55 @@ export const apiGetAdminDashboard = async (token: string): Promise<ApiResponse<a
   };
 };
 
-// --- DATA GURU (BERSIH DARI DATA DUMMY) ---
+// --- DATA GURU (TERINTEGRASI DENGAN POSTGRESQL SUMOPOD) ---
 let MOCK_GURU_LIST: any[] = [];
 
 export const apiGetGuruList = async (token: string): Promise<ApiResponse<any[]>> => {
-  await new Promise(resolve => setTimeout(resolve, 600));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch("/api/teachers");
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        MOCK_GURU_LIST = json.data;
+        return { success: true, message: "Success", data: json.data };
+      }
+    }
+  } catch (e) {}
   return { success: true, message: "Success", data: MOCK_GURU_LIST };
 };
 
 export const apiAddGuru = async (token: string, data: any): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch("/api/teachers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
   const newId = "G" + (MOCK_GURU_LIST.length + 100);
   MOCK_GURU_LIST.push({ ...data, id: newId });
   return { success: true, message: "Guru berhasil ditambahkan" };
 };
 
 export const apiUpdateGuru = async (token: string, id: string, data: any): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch(`/api/teachers/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
   const index = MOCK_GURU_LIST.findIndex(g => g.id === id);
   if (index !== -1) {
     MOCK_GURU_LIST[index] = { ...MOCK_GURU_LIST[index], ...data };
@@ -474,24 +541,51 @@ export const apiUpdateGuru = async (token: string, id: string, data: any): Promi
 };
 
 export const apiDeleteGuru = async (token: string, id: string): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch(`/api/teachers/${id}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
   MOCK_GURU_LIST = MOCK_GURU_LIST.filter(g => g.id !== id);
   return { success: true, message: "Guru berhasil dihapus" };
 };
 
-// --- DATA SISWA (BERSIH DARI DATA DUMMY) ---
+// --- DATA SISWA (TERINTEGRASI DENGAN POSTGRESQL SUMOPOD) ---
 let MOCK_SISWA_LIST: any[] = [];
 
 export const apiGetSiswaListAdmin = async (token: string): Promise<ApiResponse<any[]>> => {
-  await new Promise(resolve => setTimeout(resolve, 600));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch("/api/students");
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        MOCK_SISWA_LIST = json.data;
+        return { success: true, message: "Success", data: json.data };
+      }
+    }
+  } catch (e) {}
   return { success: true, message: "Success", data: MOCK_SISWA_LIST };
 };
 
 export const apiAddSiswa = async (token: string, data: any): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch("/api/students", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
   const newId = "S" + (MOCK_SISWA_LIST.length + 100);
   const selectedClass = MOCK_CLASSES.find(c => c.id === data.kelas_id);
   MOCK_SISWA_LIST.push({ ...data, id: newId, kelas_nama: selectedClass ? selectedClass.name : "Unknown" });
@@ -499,8 +593,18 @@ export const apiAddSiswa = async (token: string, data: any): Promise<ApiResponse
 };
 
 export const apiUpdateSiswa = async (token: string, id: string, data: any): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch(`/api/students/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
   const index = MOCK_SISWA_LIST.findIndex(s => s.id === id);
   if (index !== -1) {
     const selectedClass = MOCK_CLASSES.find(c => c.id === data.kelas_id);
@@ -510,15 +614,32 @@ export const apiUpdateSiswa = async (token: string, id: string, data: any): Prom
 };
 
 export const apiDeleteSiswa = async (token: string, id: string): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch(`/api/students/${id}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
   MOCK_SISWA_LIST = MOCK_SISWA_LIST.filter(s => s.id !== id);
   return { success: true, message: "Siswa berhasil dihapus" };
 };
 
 export const apiGetClassesAdmin = async (token: string): Promise<ApiResponse<any[]>> => {
-  await new Promise(resolve => setTimeout(resolve, 600));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch("/api/classes");
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        MOCK_CLASSES = json.data;
+        return { success: true, message: "Success", data: json.data };
+      }
+    }
+  } catch (e) {}
   const data = MOCK_CLASSES.map(c => {
     const totalSiswa = MOCK_SISWA_LIST.filter(s => s.kelas_id === c.id).length;
     return { ...c, wali_kelas: c.wali_kelas || "-", jumlah_siswa: totalSiswa };
@@ -527,8 +648,18 @@ export const apiGetClassesAdmin = async (token: string): Promise<ApiResponse<any
 };
 
 export const apiAddClass = async (token: string, data: any): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch("/api/classes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
   const newId = "C" + (MOCK_CLASSES.length + 100);
   let wali_kelas_name = "-";
   if (data.wali_kelas_id) {
@@ -540,8 +671,18 @@ export const apiAddClass = async (token: string, data: any): Promise<ApiResponse
 };
 
 export const apiUpdateClass = async (token: string, id: string, data: any): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch(`/api/classes/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
   const index = MOCK_CLASSES.findIndex(c => c.id === id);
   if (index !== -1) {
     let wali_kelas_name = MOCK_CLASSES[index].wali_kelas;
@@ -555,8 +696,16 @@ export const apiUpdateClass = async (token: string, id: string, data: any): Prom
 };
 
 export const apiDeleteClass = async (token: string, id: string): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const res = await fetch(`/api/classes/${id}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
   MOCK_CLASSES = MOCK_CLASSES.filter(c => c.id !== id);
   return { success: true, message: "Kelas berhasil dihapus" };
 };
@@ -595,36 +744,59 @@ export const apiDeleteSchedule = async (token: string, id: string): Promise<ApiR
   return { success: true, message: "Jadwal berhasil dihapus" };
 };
 
-// --- DATA ABSENSI ADMIN (BERSIH DARI DATA DUMMY) ---
+// --- DATA ABSENSI ADMIN (TERINTEGRASI DENGAN POSTGRESQL SUMOPOD) ---
 export const apiGetAbsensiGuruAdmin = async (token: string, _date: string): Promise<ApiResponse<any[]>> => {
-  await new Promise(resolve => setTimeout(resolve, 400));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
   return { success: true, message: "Success", data: [] };
 };
 
 export const apiGetAbsensiSiswaAdmin = async (token: string, _date: string, _kelasId?: string): Promise<ApiResponse<any[]>> => {
-  await new Promise(resolve => setTimeout(resolve, 400));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    const url = `/api/attendances?date=${encodeURIComponent(_date || "")}&classId=${encodeURIComponent(_kelasId || "")}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        return { success: true, message: "Success", data: json.data };
+      }
+    }
+  } catch (e) {}
   return { success: true, message: "Success", data: [] };
 };
 
-// --- DATA LEAVE REQUESTS (BERSIH DARI DATA DUMMY) ---
+// --- DATA LEAVE REQUESTS (TERINTEGRASI DENGAN POSTGRESQL SUMOPOD) ---
 let MOCK_LEAVE_REQUESTS: any[] = [];
 
 export const apiGetLeaveRequestsAdmin = async (token: string, filterRole: string = "all", filterStatus: string = "all"): Promise<ApiResponse<any[]>> => {
-  await new Promise(resolve => setTimeout(resolve, 600));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
   
+  try {
+    const res = await fetch("/api/permits");
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        MOCK_LEAVE_REQUESTS = json.data;
+      }
+    }
+  } catch (e) {}
+
   let data = [...MOCK_LEAVE_REQUESTS];
-  if (filterRole !== "all") data = data.filter(d => d.peran.toLowerCase() === filterRole.toLowerCase());
+  if (filterRole !== "all") data = data.filter(d => (d.peran || "siswa").toLowerCase() === filterRole.toLowerCase());
   if (filterStatus !== "all") data = data.filter(d => d.status.toLowerCase() === filterStatus.toLowerCase());
   
   return { success: true, message: "Success", data };
 };
 
 export const apiApproveLeaveRequest = async (token: string, id: string): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    await fetch(`/api/permits/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "Disetujui" }),
+    });
+  } catch (e) {}
   const target = MOCK_LEAVE_REQUESTS.find(r => r.id === id);
   if (target) {
     target.status = "Disetujui";
@@ -633,8 +805,14 @@ export const apiApproveLeaveRequest = async (token: string, id: string): Promise
 };
 
 export const apiRejectLeaveRequest = async (token: string, id: string): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 800));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  try {
+    await fetch(`/api/permits/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "Ditolak" }),
+    });
+  } catch (e) {}
   const target = MOCK_LEAVE_REQUESTS.find(r => r.id === id);
   if (target) {
     target.status = "Ditolak";
@@ -749,11 +927,21 @@ const getInitialSettings = () => {
 let MOCK_SETTINGS = getInitialSettings();
 
 export const apiGetPublicSettings = async (): Promise<ApiResponse<{ schoolName: string; logoSekolah: string | null; jenjang: string }>> => {
+  try {
+    const res = await fetch("/api/public-settings");
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.data) {
+        return json;
+      }
+    }
+  } catch (e) {}
+
   return {
     success: true,
     message: "Success",
     data: {
-      schoolName: MOCK_SETTINGS.schoolName || "Presensi Sekolah Digital",
+      schoolName: MOCK_SETTINGS.schoolName || "SMPN 2 PABUARAN SERANG",
       logoSekolah: MOCK_SETTINGS.logoSekolah || null,
       jenjang: MOCK_SETTINGS.jenjang || "SMP"
     }
@@ -761,9 +949,19 @@ export const apiGetPublicSettings = async (): Promise<ApiResponse<{ schoolName: 
 };
 
 export const apiGetSettings = async (token: string): Promise<ApiResponse<any>> => {
-  await new Promise(resolve => setTimeout(resolve, 300));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
   
+  try {
+    const res = await fetch("/api/settings");
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.data) {
+        MOCK_SETTINGS = { ...MOCK_SETTINGS, ...json.data };
+        return { success: true, message: "Success", data: MOCK_SETTINGS };
+      }
+    }
+  } catch (e) {}
+
   return { 
     success: true, 
     message: "Success", 
@@ -772,13 +970,27 @@ export const apiGetSettings = async (token: string): Promise<ApiResponse<any>> =
 };
 
 export const apiUpdateSettings = async (token: string, data: any): Promise<ApiResponse> => {
-  await new Promise(resolve => setTimeout(resolve, 500));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
   MOCK_SETTINGS = { ...MOCK_SETTINGS, ...data };
+  
+  try {
+    const res = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("school-settings-updated"));
+      }
+      return json;
+    }
+  } catch (e) {}
+
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(MOCK_SETTINGS));
-      // Dispatch an event so other tabs or components can update immediately
       window.dispatchEvent(new Event("school-settings-updated"));
     } catch (e) {
       console.error("Gagal simpan pengaturan ke localStorage", e);
@@ -1034,6 +1246,22 @@ export const apiLogin = async (username: string, password: string): Promise<ApiR
       error_code: "AUTH_LOCKED"
     };
   }
+
+  // 0.5 Coba Login ke Server PostgreSQL (Sumopod)
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.data) {
+        clearLoginAttempts(username);
+        return json;
+      }
+    }
+  } catch (e) {}
 
   // 1. Check Standard Mock Users (guru, admin, satpam, inactive)
   const account = Object.values(MOCK_USERS).find(u => u.user.username.toLowerCase() === cleanInput);
@@ -2417,6 +2645,18 @@ export const apiScanGateAttendance = async (
   }
 
   const query = (parsedNis || parsedNisn || parsedId || raw).toLowerCase();
+
+  // Asinkron rekam ke database PostgreSQL Sumopod
+  try {
+    fetch("/api/attendances/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code: query,
+        type: payload.mode === "pulang" ? "pulang" : "datang",
+      }),
+    }).catch(() => {});
+  } catch (e) {}
 
   // Find in Siswa List
   let matchedStudent = MOCK_SISWA_LIST.find(s => 
