@@ -484,44 +484,170 @@ export const apiGetAdminDashboard = async (token: string): Promise<ApiResponse<a
   };
 };
 
-// --- DATA GURU (TERINTEGRASI DENGAN POSTGRESQL SUMOPOD) ---
-let MOCK_GURU_LIST: any[] = [];
+// --- STORAGE KEYS UNTUK PERSISTENSI CACHE LOKAL & POSTGRESQL ---
+const GURU_STORAGE_KEY = "sims_guru_list_data_v1";
+const SISWA_STORAGE_KEY = "sims_siswa_list_data_v1";
+const KELAS_STORAGE_KEY = "sims_kelas_list_data_v1";
+
+const getInitialGuruList = (): any[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(GURU_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return [];
+};
+
+const getInitialSiswaList = (): any[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(SISWA_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return [];
+};
+
+const getInitialClassesList = (): any[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(KELAS_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return [];
+};
+
+// --- DATA GURU (TERINTEGRASI DENGAN POSTGRESQL SUMOPOD & PERSISTENSI CACHE) ---
+let MOCK_GURU_LIST: any[] = getInitialGuruList();
 
 export const apiGetGuruList = async (token: string): Promise<ApiResponse<any[]>> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  
+  // 1. Coba ambil dari server PostgreSQL
   try {
     const res = await fetch("/api/teachers");
     if (res.ok) {
       const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
         MOCK_GURU_LIST = json.data;
+        if (typeof window !== "undefined") {
+          localStorage.setItem(GURU_STORAGE_KEY, JSON.stringify(json.data));
+        }
         return { success: true, message: "Success", data: json.data };
+      } else if (json.success && Array.isArray(json.data) && json.data.length === 0) {
+        // Jika server kosong, periksa apakah ada di cache lokal
+        if (MOCK_GURU_LIST.length === 0 && typeof window !== "undefined") {
+          const raw = localStorage.getItem(GURU_STORAGE_KEY);
+          if (raw) {
+            MOCK_GURU_LIST = JSON.parse(raw);
+          }
+        }
+        return { success: true, message: "Success", data: MOCK_GURU_LIST };
       }
     }
   } catch (e) {}
+
+  // 2. Fallback aman ke localStorage jika offline/server belum siap
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(GURU_STORAGE_KEY);
+      if (raw) MOCK_GURU_LIST = JSON.parse(raw);
+    } catch (e) {}
+  }
   return { success: true, message: "Success", data: MOCK_GURU_LIST };
 };
 
 export const apiAddGuru = async (token: string, data: any): Promise<ApiResponse> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  const newId = data.id || `G${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const teacherItem = { ...data, id: newId };
+
+  // Selalu simpan ke memori & localStorage terlebih dahulu agar TIDAK hilang saat refresh
+  const existingIdx = MOCK_GURU_LIST.findIndex(g => (data.nip && g.nip === data.nip) || g.id === newId);
+  if (existingIdx !== -1) {
+    MOCK_GURU_LIST[existingIdx] = { ...MOCK_GURU_LIST[existingIdx], ...teacherItem };
+  } else {
+    MOCK_GURU_LIST.push(teacherItem);
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(GURU_STORAGE_KEY, JSON.stringify(MOCK_GURU_LIST));
+    } catch (e) {}
+  }
+
+  // Sinkronkan ke server PostgreSQL
   try {
     const res = await fetch("/api/teachers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify(teacherItem),
     });
     if (res.ok) {
       const json = await res.json();
       return json;
     }
   } catch (e) {}
-  const newId = "G" + (MOCK_GURU_LIST.length + 100);
-  MOCK_GURU_LIST.push({ ...data, id: newId });
-  return { success: true, message: "Guru berhasil ditambahkan" };
+
+  return { success: true, message: "Data guru berhasil disimpan", id: newId };
+};
+
+export const apiImportGuruBulk = async (token: string, teachers: any[]): Promise<ApiResponse> => {
+  if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  if (!Array.isArray(teachers) || teachers.length === 0) {
+    return { success: false, message: "Data guru kosong" };
+  }
+
+  // 1. Simpan ke cache lokal agar langsung aman dan tidak hilang
+  for (const item of teachers) {
+    const newId = item.id || `G${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const teacherItem = { ...item, id: newId };
+    const existingIdx = MOCK_GURU_LIST.findIndex(g => (item.nip && g.nip === item.nip) || (item.nama && g.nama === item.nama));
+    if (existingIdx !== -1) {
+      MOCK_GURU_LIST[existingIdx] = { ...MOCK_GURU_LIST[existingIdx], ...teacherItem };
+    } else {
+      MOCK_GURU_LIST.push(teacherItem);
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(GURU_STORAGE_KEY, JSON.stringify(MOCK_GURU_LIST));
+    } catch (e) {}
+  }
+
+  // 2. Kirim ke PostgreSQL backend
+  try {
+    const res = await fetch("/api/teachers/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teachers }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
+
+  return { 
+    success: true, 
+    message: `${teachers.length} data guru berhasil disimpan!`, 
+    count: teachers.length 
+  };
 };
 
 export const apiUpdateGuru = async (token: string, id: string, data: any): Promise<ApiResponse> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+
+  const index = MOCK_GURU_LIST.findIndex(g => g.id === id);
+  if (index !== -1) {
+    MOCK_GURU_LIST[index] = { ...MOCK_GURU_LIST[index], ...data };
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(GURU_STORAGE_KEY, JSON.stringify(MOCK_GURU_LIST));
+      } catch (e) {}
+    }
+  }
+
   try {
     const res = await fetch(`/api/teachers/${id}`, {
       method: "PUT",
@@ -533,15 +659,20 @@ export const apiUpdateGuru = async (token: string, id: string, data: any): Promi
       return json;
     }
   } catch (e) {}
-  const index = MOCK_GURU_LIST.findIndex(g => g.id === id);
-  if (index !== -1) {
-    MOCK_GURU_LIST[index] = { ...MOCK_GURU_LIST[index], ...data };
-  }
+
   return { success: true, message: "Data guru berhasil diperbarui" };
 };
 
 export const apiDeleteGuru = async (token: string, id: string): Promise<ApiResponse> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+
+  MOCK_GURU_LIST = MOCK_GURU_LIST.filter(g => g.id !== id);
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(GURU_STORAGE_KEY, JSON.stringify(MOCK_GURU_LIST));
+    } catch (e) {}
+  }
+
   try {
     const res = await fetch(`/api/teachers/${id}`, {
       method: "DELETE",
@@ -551,12 +682,12 @@ export const apiDeleteGuru = async (token: string, id: string): Promise<ApiRespo
       return json;
     }
   } catch (e) {}
-  MOCK_GURU_LIST = MOCK_GURU_LIST.filter(g => g.id !== id);
+
   return { success: true, message: "Guru berhasil dihapus" };
 };
 
-// --- DATA SISWA (TERINTEGRASI DENGAN POSTGRESQL SUMOPOD) ---
-let MOCK_SISWA_LIST: any[] = [];
+// --- DATA SISWA (TERINTEGRASI DENGAN POSTGRESQL SUMOPOD & PERSISTENSI CACHE) ---
+let MOCK_SISWA_LIST: any[] = getInitialSiswaList();
 
 export const apiGetSiswaListAdmin = async (token: string): Promise<ApiResponse<any[]>> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
@@ -564,36 +695,79 @@ export const apiGetSiswaListAdmin = async (token: string): Promise<ApiResponse<a
     const res = await fetch("/api/students");
     if (res.ok) {
       const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
         MOCK_SISWA_LIST = json.data;
+        if (typeof window !== "undefined") {
+          localStorage.setItem(SISWA_STORAGE_KEY, JSON.stringify(json.data));
+        }
         return { success: true, message: "Success", data: json.data };
+      } else if (json.success && Array.isArray(json.data) && json.data.length === 0) {
+        if (MOCK_SISWA_LIST.length === 0 && typeof window !== "undefined") {
+          const raw = localStorage.getItem(SISWA_STORAGE_KEY);
+          if (raw) MOCK_SISWA_LIST = JSON.parse(raw);
+        }
+        return { success: true, message: "Success", data: MOCK_SISWA_LIST };
       }
     }
   } catch (e) {}
+
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(SISWA_STORAGE_KEY);
+      if (raw) MOCK_SISWA_LIST = JSON.parse(raw);
+    } catch (e) {}
+  }
   return { success: true, message: "Success", data: MOCK_SISWA_LIST };
 };
 
 export const apiAddSiswa = async (token: string, data: any): Promise<ApiResponse> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  const newId = data.id || `S${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const selectedClass = MOCK_CLASSES.find(c => c.id === data.kelas_id);
+  const studentItem = { ...data, id: newId, kelas_nama: selectedClass ? selectedClass.name : (data.kelas_nama || "Unknown") };
+
+  const existingIdx = MOCK_SISWA_LIST.findIndex(s => (data.nisn && s.nisn === data.nisn) || s.id === newId);
+  if (existingIdx !== -1) {
+    MOCK_SISWA_LIST[existingIdx] = { ...MOCK_SISWA_LIST[existingIdx], ...studentItem };
+  } else {
+    MOCK_SISWA_LIST.push(studentItem);
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(SISWA_STORAGE_KEY, JSON.stringify(MOCK_SISWA_LIST));
+    } catch (e) {}
+  }
+
   try {
     const res = await fetch("/api/students", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify(studentItem),
     });
     if (res.ok) {
       const json = await res.json();
       return json;
     }
   } catch (e) {}
-  const newId = "S" + (MOCK_SISWA_LIST.length + 100);
-  const selectedClass = MOCK_CLASSES.find(c => c.id === data.kelas_id);
-  MOCK_SISWA_LIST.push({ ...data, id: newId, kelas_nama: selectedClass ? selectedClass.name : "Unknown" });
-  return { success: true, message: "Siswa berhasil ditambahkan" };
+
+  return { success: true, message: "Siswa berhasil ditambahkan", id: newId };
 };
 
 export const apiUpdateSiswa = async (token: string, id: string, data: any): Promise<ApiResponse> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  
+  const index = MOCK_SISWA_LIST.findIndex(s => s.id === id);
+  if (index !== -1) {
+    const selectedClass = MOCK_CLASSES.find(c => c.id === data.kelas_id);
+    MOCK_SISWA_LIST[index] = { ...MOCK_SISWA_LIST[index], ...data, kelas_nama: selectedClass ? selectedClass.name : MOCK_SISWA_LIST[index].kelas_nama };
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(SISWA_STORAGE_KEY, JSON.stringify(MOCK_SISWA_LIST));
+      } catch (e) {}
+    }
+  }
+
   try {
     const res = await fetch(`/api/students/${id}`, {
       method: "PUT",
@@ -605,16 +779,20 @@ export const apiUpdateSiswa = async (token: string, id: string, data: any): Prom
       return json;
     }
   } catch (e) {}
-  const index = MOCK_SISWA_LIST.findIndex(s => s.id === id);
-  if (index !== -1) {
-    const selectedClass = MOCK_CLASSES.find(c => c.id === data.kelas_id);
-    MOCK_SISWA_LIST[index] = { ...MOCK_SISWA_LIST[index], ...data, kelas_nama: selectedClass ? selectedClass.name : MOCK_SISWA_LIST[index].kelas_nama };
-  }
+
   return { success: true, message: "Data siswa berhasil diperbarui" };
 };
 
 export const apiDeleteSiswa = async (token: string, id: string): Promise<ApiResponse> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+
+  MOCK_SISWA_LIST = MOCK_SISWA_LIST.filter(s => s.id !== id);
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(SISWA_STORAGE_KEY, JSON.stringify(MOCK_SISWA_LIST));
+    } catch (e) {}
+  }
+
   try {
     const res = await fetch(`/api/students/${id}`, {
       method: "DELETE",
@@ -624,9 +802,50 @@ export const apiDeleteSiswa = async (token: string, id: string): Promise<ApiResp
       return json;
     }
   } catch (e) {}
-  MOCK_SISWA_LIST = MOCK_SISWA_LIST.filter(s => s.id !== id);
+
   return { success: true, message: "Siswa berhasil dihapus" };
 };
+
+export const apiImportStudentsBulk = async (token: string, students: any[]): Promise<ApiResponse> => {
+  if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  if (!Array.isArray(students) || students.length === 0) {
+    return { success: false, message: "Data siswa kosong" };
+  }
+
+  for (const item of students) {
+    const newId = item.id || `S${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const studentItem = { ...item, id: newId };
+    const existingIdx = MOCK_SISWA_LIST.findIndex(s => (item.nisn && s.nisn === item.nisn) || (item.nis && s.nis === item.nis));
+    if (existingIdx !== -1) {
+      MOCK_SISWA_LIST[existingIdx] = { ...MOCK_SISWA_LIST[existingIdx], ...studentItem };
+    } else {
+      MOCK_SISWA_LIST.push(studentItem);
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(SISWA_STORAGE_KEY, JSON.stringify(MOCK_SISWA_LIST));
+    } catch (e) {}
+  }
+
+  try {
+    const res = await fetch("/api/students/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ students }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json;
+    }
+  } catch (e) {}
+
+  return { success: true, message: `${students.length} data siswa berhasil disimpan!`, count: students.length };
+};
+
+// --- DATA KELAS (PERSISTENSI & POSTGRESQL) ---
+let MOCK_CLASSES_LIST: any[] = getInitialClassesList();
 
 export const apiGetClassesAdmin = async (token: string): Promise<ApiResponse<any[]>> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
@@ -634,12 +853,23 @@ export const apiGetClassesAdmin = async (token: string): Promise<ApiResponse<any
     const res = await fetch("/api/classes");
     if (res.ok) {
       const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
         MOCK_CLASSES = json.data;
+        if (typeof window !== "undefined") {
+          localStorage.setItem(KELAS_STORAGE_KEY, JSON.stringify(json.data));
+        }
         return { success: true, message: "Success", data: json.data };
       }
     }
   } catch (e) {}
+
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(KELAS_STORAGE_KEY);
+      if (raw) MOCK_CLASSES = JSON.parse(raw);
+    } catch (e) {}
+  }
+
   const data = MOCK_CLASSES.map(c => {
     const totalSiswa = MOCK_SISWA_LIST.filter(s => s.kelas_id === c.id).length;
     return { ...c, wali_kelas: c.wali_kelas || "-", jumlah_siswa: totalSiswa };
@@ -649,29 +879,53 @@ export const apiGetClassesAdmin = async (token: string): Promise<ApiResponse<any
 
 export const apiAddClass = async (token: string, data: any): Promise<ApiResponse> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  const newId = data.id || `C${Date.now()}`;
+  let wali_kelas_name = "-";
+  if (data.wali_kelas_id) {
+    const guru = MOCK_GURU_LIST.find(g => g.id === data.wali_kelas_id);
+    if (guru) wali_kelas_name = guru.nama;
+  }
+  const classItem = { ...data, id: newId, wali_kelas: wali_kelas_name, jumlah_siswa: 0 };
+  
+  MOCK_CLASSES.push(classItem);
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(KELAS_STORAGE_KEY, JSON.stringify(MOCK_CLASSES));
+    } catch (e) {}
+  }
+
   try {
     const res = await fetch("/api/classes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify(classItem),
     });
     if (res.ok) {
       const json = await res.json();
       return json;
     }
   } catch (e) {}
-  const newId = "C" + (MOCK_CLASSES.length + 100);
-  let wali_kelas_name = "-";
-  if (data.wali_kelas_id) {
-    const guru = MOCK_GURU_LIST.find(g => g.id === data.wali_kelas_id);
-    if (guru) wali_kelas_name = guru.nama;
-  }
-  MOCK_CLASSES.push({ ...data, id: newId, wali_kelas: wali_kelas_name, jumlah_siswa: 0 });
-  return { success: true, message: "Kelas berhasil ditambahkan" };
+
+  return { success: true, message: "Kelas berhasil ditambahkan", id: newId };
 };
 
 export const apiUpdateClass = async (token: string, id: string, data: any): Promise<ApiResponse> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  const index = MOCK_CLASSES.findIndex(c => c.id === id);
+  if (index !== -1) {
+    let wali_kelas_name = MOCK_CLASSES[index].wali_kelas;
+    if (data.wali_kelas_id) {
+      const guru = MOCK_GURU_LIST.find(g => g.id === data.wali_kelas_id);
+      if (guru) wali_kelas_name = guru.nama;
+    }
+    MOCK_CLASSES[index] = { ...MOCK_CLASSES[index], ...data, wali_kelas: wali_kelas_name };
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(KELAS_STORAGE_KEY, JSON.stringify(MOCK_CLASSES));
+      } catch (e) {}
+    }
+  }
+
   try {
     const res = await fetch(`/api/classes/${id}`, {
       method: "PUT",
@@ -683,20 +937,19 @@ export const apiUpdateClass = async (token: string, id: string, data: any): Prom
       return json;
     }
   } catch (e) {}
-  const index = MOCK_CLASSES.findIndex(c => c.id === id);
-  if (index !== -1) {
-    let wali_kelas_name = MOCK_CLASSES[index].wali_kelas;
-    if (data.wali_kelas_id) {
-      const guru = MOCK_GURU_LIST.find(g => g.id === data.wali_kelas_id);
-      if (guru) wali_kelas_name = guru.nama;
-    }
-    MOCK_CLASSES[index] = { ...MOCK_CLASSES[index], ...data, wali_kelas: wali_kelas_name };
-  }
+
   return { success: true, message: "Data kelas berhasil diperbarui" };
 };
 
 export const apiDeleteClass = async (token: string, id: string): Promise<ApiResponse> => {
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
+  MOCK_CLASSES = MOCK_CLASSES.filter(c => c.id !== id);
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(KELAS_STORAGE_KEY, JSON.stringify(MOCK_CLASSES));
+    } catch (e) {}
+  }
+
   try {
     const res = await fetch(`/api/classes/${id}`, {
       method: "DELETE",
@@ -706,7 +959,7 @@ export const apiDeleteClass = async (token: string, id: string): Promise<ApiResp
       return json;
     }
   } catch (e) {}
-  MOCK_CLASSES = MOCK_CLASSES.filter(c => c.id !== id);
+
   return { success: true, message: "Kelas berhasil dihapus" };
 };
 

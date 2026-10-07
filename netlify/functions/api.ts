@@ -1,4 +1,4 @@
 import serverless from "serverless-http";
-import { app } from "../../server.ts";
+import { apiApp } from "../../backend/apiApp.ts";
 
-export const handler = serverless(app);
+export const handler = serverless(apiApp);

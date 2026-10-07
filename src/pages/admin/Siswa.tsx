@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/store/useAuth";
-import { apiGetSiswaListAdmin, apiAddSiswa, apiUpdateSiswa, apiDeleteSiswa, apiGetClasses, apiGetSettings } from "@/services/api";
+import { apiGetSiswaListAdmin, apiAddSiswa, apiUpdateSiswa, apiDeleteSiswa, apiGetClasses, apiGetSettings, apiImportStudentsBulk } from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Loader2, Plus, Edit2, Trash2, Search, X, AlertCircle, CheckCircle2, CreditCard, Upload, Image as ImageIcon, FileSpreadsheet, Download, Printer, Radio } from "lucide-react";
 import KartuPelajarModal from "@/components/siswa/KartuPelajarModal";
@@ -239,49 +239,58 @@ export default function AdminSiswa() {
           return;
         }
 
-        let successCount = 0;
-        let failedCount = 0;
+        const studentsPayload: any[] = [];
+        let skippedEmpty = 0;
 
         for (const row of data as any[]) {
-          try {
-            // Temukan ID kelas berdasarkan nama kelas dari Excel
-            let targetClassId = "";
-            if (row.kelas) {
-              const matchedClass = classes.find(c => 
-                c.nama_kelas.toLowerCase() === String(row.kelas).toLowerCase() || 
-                c.id === row.kelas
-              );
-              if (matchedClass) {
-                targetClassId = matchedClass.id;
-              }
-            }
-
-            const rawRfid = row.rfid_uid || row.RFID || row["Nomor RFID"] || row["No Kartu RFID"] || row["UID RFID"] || row["rfid"] || "";
-
-            const payload = {
-              nama: row.nama || "",
-              nis: row.nis?.toString() || "",
-              nisn: row.nisn?.toString() || "",
-              rfid_uid: rawRfid ? String(rawRfid).trim() : "",
-              kelas_id: targetClassId,
-              jenis_kelamin: row.jenis_kelamin || "Laki-laki",
-              tempat_lahir: row.tempat_lahir || "",
-              tanggal_lahir: row.tanggal_lahir || "",
-              golongan_darah: row.golongan_darah || "-",
-              status: "Aktif",
-              foto: ""
-            };
-
-            await apiAddSiswa(token, payload);
-            successCount++;
-          } catch (err) {
-            console.error("Gagal menambahkan baris:", row, err);
-            failedCount++;
+          const rawNama = row.nama || row.Nama || row["Nama Lengkap"] || "";
+          if (!rawNama) {
+            skippedEmpty++;
+            continue;
           }
+
+          // Temukan ID kelas berdasarkan nama kelas dari Excel
+          let targetClassId = "";
+          if (row.kelas) {
+            const matchedClass = classes.find(c => 
+              (c.name && c.name.toLowerCase() === String(row.kelas).toLowerCase()) ||
+              (c.nama_kelas && c.nama_kelas.toLowerCase() === String(row.kelas).toLowerCase()) || 
+              c.id === row.kelas
+            );
+            if (matchedClass) {
+              targetClassId = matchedClass.id;
+            }
+          }
+
+          const rawRfid = row.rfid_uid || row.RFID || row["Nomor RFID"] || row["No Kartu RFID"] || row["UID RFID"] || row["rfid"] || "";
+
+          studentsPayload.push({
+            nama: String(rawNama).trim(),
+            nis: row.nis?.toString() || "",
+            nisn: row.nisn?.toString() || "",
+            rfid_uid: rawRfid ? String(rawRfid).trim() : "",
+            kelas_id: targetClassId,
+            jenis_kelamin: row.jenis_kelamin || "Laki-laki",
+            tempat_lahir: row.tempat_lahir || "",
+            tanggal_lahir: row.tanggal_lahir || "",
+            golongan_darah: row.golongan_darah || "-",
+            status: "Aktif",
+            foto: ""
+          });
         }
 
+        if (studentsPayload.length === 0) {
+          alert("Tidak ada baris data siswa yang valid dalam file Excel.");
+          setIsUploadingMass(false);
+          return;
+        }
+
+        const res = await apiImportStudentsBulk(token, studentsPayload);
+        const successCount = res.success ? studentsPayload.length : 0;
+        const failedCount = res.success ? skippedEmpty : studentsPayload.length + skippedEmpty;
+
         setUploadStats({ total: data.length, success: successCount, failed: failedCount });
-        fetchSiswa();
+        await fetchSiswa();
         
         // Reset input file agar bisa memilih file yang sama lagi jika perlu
         if (excelInputRef.current) {

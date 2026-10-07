@@ -5,6 +5,8 @@
 
 [functions]
   node_bundler = "esbuild"
+  external_node_modules = ["pg-native"]
+  included_files = ["db/**"]
 
 [[redirects]]
   from = "/api/*"

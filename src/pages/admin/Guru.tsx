@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/store/useAuth";
-import { apiGetGuruList, apiAddGuru, apiUpdateGuru, apiDeleteGuru } from "@/services/api";
+import { apiGetGuruList, apiAddGuru, apiUpdateGuru, apiDeleteGuru, apiImportGuruBulk } from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { 
   Loader2, 
@@ -179,55 +179,53 @@ export default function AdminGuru() {
           return;
         }
 
-        let successCount = 0;
-        let failedCount = 0;
+        const teachersPayload: any[] = [];
+        let skippedEmpty = 0;
 
         for (const row of rows as any[]) {
-          try {
-            // Ambil data dengan toleransi format nama kolom
-            const rawNama = row.nama || row.Nama || row["Nama Lengkap"] || "";
-            if (!rawNama) {
-              failedCount++;
-              continue;
-            }
-
-            const rawNip = row.nip || row.NIP || "";
-            const rawNuptk = row.nuptk || row.NUPTK || "";
-            const rawRfid = row.rfid_uid || row.RFID || row["Nomor RFID"] || row["No Kartu RFID"] || row["UID RFID"] || row["rfid"] || "";
-            const rawEmail = row.email || row.Email || "";
-            const rawHp = row.no_hp || row["No. HP"] || row["Nomor HP"] || row.Telepon || "";
-            const rawJabatan = row.jabatan || row.Jabatan || "Guru Mata Pelajaran";
-            const rawMapel = row.mata_pelajaran || row.Mapel || row["Mata Pelajaran"] || "-";
-            const rawStatus = row.status || row.Status || "Aktif";
-
-            const payload = {
-              nama: String(rawNama).trim(),
-              nip: rawNip ? String(rawNip).trim() : "",
-              nuptk: rawNuptk ? String(rawNuptk).trim() : "",
-              rfid_uid: rawRfid ? String(rawRfid).trim() : "",
-              email: rawEmail 
-                ? String(rawEmail).trim() 
-                : `${String(rawNama).toLowerCase().replace(/[^a-z0-9]/g, "")}@sekolah.sch.id`,
-              no_hp: rawHp ? String(rawHp).trim() : "",
-              jabatan: String(rawJabatan).trim(),
-              mata_pelajaran: String(rawMapel).trim(),
-              status: rawStatus === "Inaktif" || rawStatus === "Cuti" ? rawStatus : "Aktif",
-            };
-
-            const res = await apiAddGuru(token, payload);
-            if (res.success) {
-              successCount++;
-            } else {
-              failedCount++;
-            }
-          } catch (err) {
-            console.error("Gagal menambahkan baris guru:", row, err);
-            failedCount++;
+          // Ambil data dengan toleransi format nama kolom
+          const rawNama = row.nama || row.Nama || row["Nama Lengkap"] || "";
+          if (!rawNama) {
+            skippedEmpty++;
+            continue;
           }
+
+          const rawNip = row.nip || row.NIP || "";
+          const rawNuptk = row.nuptk || row.NUPTK || "";
+          const rawRfid = row.rfid_uid || row.RFID || row["Nomor RFID"] || row["No Kartu RFID"] || row["UID RFID"] || row["rfid"] || "";
+          const rawEmail = row.email || row.Email || "";
+          const rawHp = row.no_hp || row["No. HP"] || row["Nomor HP"] || row.Telepon || "";
+          const rawJabatan = row.jabatan || row.Jabatan || "Guru Mata Pelajaran";
+          const rawMapel = row.mata_pelajaran || row.Mapel || row["Mata Pelajaran"] || "-";
+          const rawStatus = row.status || row.Status || "Aktif";
+
+          teachersPayload.push({
+            nama: String(rawNama).trim(),
+            nip: rawNip ? String(rawNip).trim() : "",
+            nuptk: rawNuptk ? String(rawNuptk).trim() : "",
+            rfid_uid: rawRfid ? String(rawRfid).trim() : "",
+            email: rawEmail 
+              ? String(rawEmail).trim() 
+              : `${String(rawNama).toLowerCase().replace(/[^a-z0-9]/g, "")}@sekolah.sch.id`,
+            no_hp: rawHp ? String(rawHp).trim() : "",
+            jabatan: String(rawJabatan).trim(),
+            mata_pelajaran: String(rawMapel).trim(),
+            status: rawStatus === "Inaktif" || rawStatus === "Cuti" ? rawStatus : "Aktif",
+          });
         }
 
+        if (teachersPayload.length === 0) {
+          alert("Tidak ada baris data guru yang valid dalam file Excel.");
+          setIsUploadingMass(false);
+          return;
+        }
+
+        const res = await apiImportGuruBulk(token, teachersPayload);
+        const successCount = res.success ? teachersPayload.length : 0;
+        const failedCount = res.success ? skippedEmpty : teachersPayload.length + skippedEmpty;
+
         setUploadStats({ total: rows.length, success: successCount, failed: failedCount });
-        fetchGuru();
+        await fetchGuru();
 
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
