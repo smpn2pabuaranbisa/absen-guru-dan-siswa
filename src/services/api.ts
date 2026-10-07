@@ -534,14 +534,26 @@ export const apiGetGuruList = async (token: string): Promise<ApiResponse<any[]>>
         }
         return { success: true, message: "Success", data: json.data };
       } else if (json.success && Array.isArray(json.data) && json.data.length === 0) {
-        // Jika server kosong, periksa apakah ada di cache lokal
-        if (MOCK_GURU_LIST.length === 0 && typeof window !== "undefined") {
+        // Jika database server masih kosong, periksa apakah di browser ini tersimpan data lokal sebelumnya
+        if (typeof window !== "undefined") {
           const raw = localStorage.getItem(GURU_STORAGE_KEY);
           if (raw) {
-            MOCK_GURU_LIST = JSON.parse(raw);
+            try {
+              const localList = JSON.parse(raw);
+              if (Array.isArray(localList) && localList.length > 0) {
+                MOCK_GURU_LIST = localList;
+                // Otomatis unggah sinkronisasi data lokal ke database cloud PostgreSQL!
+                fetch("/api/teachers/bulk", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ teachers: localList }),
+                }).catch(() => {});
+                return { success: true, message: "Success", data: MOCK_GURU_LIST };
+              }
+            } catch (e) {}
           }
         }
-        return { success: true, message: "Success", data: MOCK_GURU_LIST };
+        return { success: true, message: "Success", data: [] };
       }
     }
   } catch (e) {}
@@ -702,11 +714,24 @@ export const apiGetSiswaListAdmin = async (token: string): Promise<ApiResponse<a
         }
         return { success: true, message: "Success", data: json.data };
       } else if (json.success && Array.isArray(json.data) && json.data.length === 0) {
-        if (MOCK_SISWA_LIST.length === 0 && typeof window !== "undefined") {
+        if (typeof window !== "undefined") {
           const raw = localStorage.getItem(SISWA_STORAGE_KEY);
-          if (raw) MOCK_SISWA_LIST = JSON.parse(raw);
+          if (raw) {
+            try {
+              const localList = JSON.parse(raw);
+              if (Array.isArray(localList) && localList.length > 0) {
+                MOCK_SISWA_LIST = localList;
+                fetch("/api/students/bulk", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ students: localList }),
+                }).catch(() => {});
+                return { success: true, message: "Success", data: MOCK_SISWA_LIST };
+              }
+            } catch (e) {}
+          }
         }
-        return { success: true, message: "Success", data: MOCK_SISWA_LIST };
+        return { success: true, message: "Success", data: [] };
       }
     }
   } catch (e) {}
