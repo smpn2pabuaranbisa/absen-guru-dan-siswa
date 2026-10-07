@@ -8,9 +8,14 @@ dotenv.config();
 
 const { Pool } = pg;
 
+const DEFAULT_SUMOPOD_DB_URL = "postgresql://uCoj6TRTrO7jX9Vai.jkt1_005:5476748abd33380c129ea855@pgsql-dbas-jkt1-005.sumobase.my.id:6432/dbb92bddb027b17d8a";
+
 // Helper to create a pg pool
 export function createPgPool(connectionUrl?: string) {
-  const url = connectionUrl || process.env.DATABASE_URL;
+  const url = connectionUrl || 
+              process.env.DATABASE_URL || 
+              process.env.VITE_DATABASE_URL || 
+              DEFAULT_SUMOPOD_DB_URL;
   if (!url) return null;
 
   let isSsl: boolean | { rejectUnauthorized: boolean } = false;
@@ -30,7 +35,7 @@ export function createPgPool(connectionUrl?: string) {
   return new Pool({
     connectionString: url,
     ssl: isSsl,
-    connectionTimeoutMillis: 7000,
+    connectionTimeoutMillis: 10000,
   });
 }
 
@@ -82,7 +87,7 @@ apiRouter.get("/health", async (req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     database: {
       status: dbStatus,
-      configured: Boolean(process.env.DATABASE_URL),
+      configured: Boolean(process.env.DATABASE_URL || process.env.VITE_DATABASE_URL || DEFAULT_SUMOPOD_DB_URL),
       version: dbVersion,
       tablesCount,
     },
