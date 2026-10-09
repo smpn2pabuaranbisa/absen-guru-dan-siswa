@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { apiGetAdminDashboard } from "@/services/api";
+import { apiGetAdminDashboard, apiGetGuruList, apiGetSiswaListAdmin } from "@/services/api";
 import { useAuth } from "@/store/useAuth";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { Loader2, Users, UserCheck, UserX, Clock, FileText, AlertCircle } from "lucide-react";
@@ -16,7 +16,11 @@ export default function AdminDashboard() {
       if (!token) return;
       try {
         setIsLoading(true);
-        const res = await apiGetAdminDashboard(token);
+        const [res] = await Promise.all([
+          apiGetAdminDashboard(token),
+          apiGetGuruList(token),
+          apiGetSiswaListAdmin(token)
+        ]);
         if (res.success && res.data) {
           setData(res.data);
         } else {

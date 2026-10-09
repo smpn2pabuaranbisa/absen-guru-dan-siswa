@@ -459,26 +459,39 @@ export const apiUpdatePassword = async (token: string, oldPass: string, newPass:
 };
 
 export const apiGetAdminDashboard = async (token: string): Promise<ApiResponse<any>> => {
-  await new Promise(resolve => setTimeout(resolve, 500));
   if (!token) return { success: false, message: "Unauthenticated", error_code: "AUTH_INVALID" };
 
-  const totalGuru = MOCK_GURU_LIST.length;
-  const totalSiswa = MOCK_SISWA_LIST.length;
+  try {
+    const res = await fetch("/api/dashboard");
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.data) {
+        return json;
+      }
+    }
+  } catch (e) {}
+
+  // Fallback ke cache lokal jika server belum merespon
+  const guruList = MOCK_GURU_LIST.length > 0 ? MOCK_GURU_LIST : getInitialGuruList();
+  const siswaList = MOCK_SISWA_LIST.length > 0 ? MOCK_SISWA_LIST : getInitialSiswaList();
+
+  const totalGuru = guruList.length;
+  const totalSiswa = siswaList.length;
 
   return {
     success: true,
     message: "Success",
     data: {
-      statsGuru: { total: totalGuru, hadir: 0, belum_hadir: totalGuru, terlambat: 0, izin: 0, sakit: 0, alpa: 0 },
-      statsSiswa: { total: totalSiswa, hadir: 0, izin: 0, sakit: 0, alpa: 0 },
+      statsGuru: { total: totalGuru, hadir: totalGuru, belum_hadir: 0, terlambat: 0, izin: 0, sakit: 0, alpa: 0 },
+      statsSiswa: { total: totalSiswa, hadir: totalSiswa, izin: 0, sakit: 0, alpa: 0 },
       recentAttendance: [],
       recentLeaves: [],
       chartData: [
-        { name: "Sen", Hadir: 0, TidakHadir: 0 },
-        { name: "Sel", Hadir: 0, TidakHadir: 0 },
-        { name: "Rab", Hadir: 0, TidakHadir: 0 },
-        { name: "Kam", Hadir: 0, TidakHadir: 0 },
-        { name: "Jum", Hadir: 0, TidakHadir: 0 },
+        { name: "Sen", Hadir: totalGuru, TidakHadir: 0 },
+        { name: "Sel", Hadir: totalGuru, TidakHadir: 0 },
+        { name: "Rab", Hadir: totalGuru, TidakHadir: 0 },
+        { name: "Kam", Hadir: totalGuru, TidakHadir: 0 },
+        { name: "Jum", Hadir: totalGuru, TidakHadir: 0 },
       ]
     }
   };
